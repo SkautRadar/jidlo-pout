@@ -30,6 +30,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedEnhancements, setSelectedEnhancements] = useState<string[]>([]);
+  const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [posStep, setPosStep] = useState<'items' | 'user'>('items');
   const [userSearchTerm, setUserSearchTerm] = useState<string>('');
   
@@ -58,6 +59,61 @@ export const CashierView: React.FC<CashierViewProps> = ({
   }, [menuItems, posActiveCategory, posSearchTerm]);
 
   const activeOrders = orders.filter(o => o.status !== OrderStatus.CANCELLED && o.status !== OrderStatus.PAID);
+
+  // Statistics
+  const totalOrders = orders.length;
+  const uniqueCustomers = new Set(orders.map(o => o.userInfo.email || `${o.userInfo.firstName}-${o.userInfo.lastName}`)).size;
+  
+  const topItems = useMemo(() => {
+    const itemCounts: { [key: string]: number } = {};
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        itemCounts[item.name] = (itemCounts[item.name] || 0) + item.quantity;
+      });
+    });
+    return Object.entries(itemCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name, count]) => ({ name, count }));
+  }, [orders]);
+
+  const getPosCustomizationSignature = (upravy: string[] = []) => JSON.stringify(upravy);
+
+  const addItemToPosCart = (item: MenuItem, quantity = 1, upravy: string[] = []) => {
+    setPosCart(prev => {
+      const existing = prev.find(cartItem => cartItem.id === item.id && getPosCustomizationSignature(cartItem.upravy || []) === getPosCustomizationSignature(upravy));
+
+      if (existing) {
+        return prev.map(cartItem => (
+          cartItem === existing ? { ...cartItem, quantity: cartItem.quantity + quantity } : cartItem
+        ));
+      }
+
+      return [...prev, {
+        ...item,
+        quantity,
+        upravy
+      }];
+    });
+  };
+
+  const updatePosCartItemQuantity = (index: number, change: number) => {
+    setPosCart(prev => prev
+      .map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const nextQuantity = item.quantity + change;
+        if (nextQuantity <= 0) return null;
+        return { ...item, quantity: nextQuantity };
+      })
+      .filter(Boolean) as OrderItem[]
+    );
+  };
+
+  const hasCustomizationOptions = (item: MenuItem) => Boolean(
+    (item.varianty && item.varianty.length > 0) ||
+    (item.vylepseni && item.vylepseni.length > 0) ||
+    (item.options && item.options.length > 0)
+  );
 
   // Category Color Map
   const getCategoryColor = (cat: string) => {
@@ -115,9 +171,15 @@ export const CashierView: React.FC<CashierViewProps> = ({
   }, [orders, users]);
 
   const handlePosAddToCart = (item: MenuItem) => {
+    if (!hasCustomizationOptions(item)) {
+      addItemToPosCart(item, 1, []);
+      return;
+    }
+
     setSelectedItem(item);
     setSelectedVariant(item.varianty?.[0] || null);
     setSelectedEnhancements([]);
+    setSelectedQuantity(1);
     setIsPosModalOpen(true);
   };
 
@@ -129,13 +191,10 @@ export const CashierView: React.FC<CashierViewProps> = ({
        ...selectedEnhancements
     ];
 
-    setPosCart(prev => [...prev, { 
-      ...selectedItem, 
-      quantity: 1,
-      upravy: combinedUpravy
-    }]);
+    addItemToPosCart(selectedItem, selectedQuantity, combinedUpravy);
 
     setIsPosModalOpen(false);
+    setSelectedQuantity(1);
   };
 
   const removeFromPosCart = (index: number) => {
@@ -165,96 +224,149 @@ export const CashierView: React.FC<CashierViewProps> = ({
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto h-full flex flex-col">
-      <header className="mb-6 flex justify-between items-center bg-white p-4 md:p-6 rounded-2xl shadow-sm border-2 border-slate-50">
+    <div className="p-3 md:p-6 w-full h-full flex flex-col bg-white">
+      <header className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Kasa & Výdej ⚜️</h1>
-          <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest">Odbavení hostů na stánku</p>
+          <h1 className="text-3xl md:text-4xl font-black text-slate-900 uppercase tracking-tight leading-none">Kasa</h1>
+          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mt-2">Výdej objednávek</p>
         </div>
         <Button
           variant="primary"
           onClick={() => setIsCreatingPOS(true)}
-          className="rounded-2xl font-black shadow-lg py-4 px-8 active:scale-95 transition-all text-sm uppercase flex items-center gap-2"
+          className="rounded-xl font-black shadow-lg py-4 px-6 active:scale-95 transition-all text-sm uppercase"
         >
-          Nová Objednávka <span className="text-lg pb-0.5">+</span>
+          Nová Objednávka
         </Button>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1">
-        {/* Left Column: Ready for Pickup */}
-        <div className="lg:col-span-2 space-y-6">
-            <h2 className="text-xl font-black text-slate-900 uppercase flex items-center gap-2">
-                <span className="bg-orange-500 text-white w-2 h-8 rounded-full"></span>
-                K Vydání
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {activeOrders.filter(o => o.status === OrderStatus.COMPLETED).length === 0 ? (
-                    <div className="col-span-full py-12 text-center bg-white rounded-3xl border-4 border-dashed border-slate-100 text-slate-400 font-bold italic">
-                        Zatím nic není připraveno
-                    </div>
-                ) : (
-                    activeOrders.filter(o => o.status === OrderStatus.COMPLETED).map(order => (
-                        <div key={order.id} className="bg-white p-4 rounded-2xl shadow-sm border-2 border-orange-100 flex flex-col gap-3 animate-bounce-in">
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <h3 className="font-black text-lg text-slate-900 leading-tight">#{String(order.orderNumber).padStart(2, '0')} {order.userInfo.nickname || order.userInfo.firstName}</h3>
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase">{order.userInfo.firstName} {order.userInfo.lastName}</p>
-                                </div>
-                                <span className="bg-emerald-500 text-white px-2 py-0.5 rounded-full font-black text-[9px] uppercase">Hotovo</span>
-                            </div>
-                            <div className="text-sm font-bold text-slate-700 bg-slate-50 p-3 rounded-xl">
-                                {order.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}
-                            </div>
-                            <Button variant="success" fullWidth onClick={() => onUpdateStatus?.(order.id, OrderStatus.PAID)} className="font-black py-4 rounded-xl">
-                                VYDÁNO ✅
-                            </Button>
-                        </div>
-                    ))
-                )}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_20rem] gap-4 lg:gap-6">
+        <div className="min-h-0 overflow-y-auto pr-2 no-scrollbar">
+          {activeOrders.length === 0 ? (
+            <div className="h-full flex items-center justify-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
+              <div className="text-center">
+                <p className="text-5xl mb-3">🍽️</p>
+                <p className="text-slate-400 text-lg font-bold">Žádné objednávky</p>
+                <p className="text-slate-300 text-sm mt-2">Vše je vyřešeno</p>
+              </div>
             </div>
-            
-            <h2 className="text-xl font-black text-slate-900 uppercase flex items-center gap-2 pt-6">
-                <span className="bg-slate-300 text-white w-2 h-8 rounded-full"></span>
-                V Přípravě / Čeká
-            </h2>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {activeOrders.filter(o => o.status !== OrderStatus.COMPLETED).map(order => (
-                    <div key={order.id} className="bg-slate-50 p-6 rounded-3xl border-2 border-slate-100 flex justify-between items-center opacity-75">
-                         <div>
-                            <h3 className="font-black text-slate-900">#{String(order.orderNumber).padStart(3, '0')} {order.userInfo.nickname || order.userInfo.firstName}</h3>
-                            <p className="text-[10px] font-black text-slate-400 uppercase">{order.status === OrderStatus.PENDING ? 'Čeká v pořadí' : 'V kuchyni'}</p>
+          ) : (
+            <div className="space-y-4">
+              {/* Ready for Delivery - Hotové */}
+              {activeOrders.filter(o => o.status === OrderStatus.COMPLETED).length > 0 && (
+                <div>
+                  <h2 className="text-sm font-black text-emerald-700 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+                    K Vydání ({activeOrders.filter(o => o.status === OrderStatus.COMPLETED).length})
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {activeOrders.filter(o => o.status === OrderStatus.COMPLETED).map(order => (
+                      <div key={order.id} className="bg-emerald-50 rounded-lg border-2 border-emerald-200 p-4 flex flex-col gap-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="text-lg font-black text-slate-900">#{String(order.orderNumber).padStart(2, '0')}</h3>
+                            <p className="text-sm font-bold text-slate-700">{order.userInfo.nickname || order.userInfo.firstName}</p>
+                          </div>
+                          <span className="bg-emerald-500 text-white px-3 py-1 rounded-full font-black text-xs whitespace-nowrap shrink-0">Hotovo</span>
                         </div>
-                        <span className="text-slate-400">⏳</span>
-                    </div>
-                ))}
+
+                        <div className="bg-white p-3 rounded-lg space-y-2">
+                          {order.items.map((item, idx) => (
+                            <div key={idx} className="text-sm font-bold text-slate-800">
+                              <span className="text-emerald-600 font-black">{item.quantity}x</span> {item.name}
+                            </div>
+                          ))}
+                        </div>
+
+                        {order.note && (
+                          <div className="bg-white border-l-4 border-amber-400 p-3 rounded-r-lg">
+                            <p className="text-xs font-black text-amber-700 uppercase mb-1">Poznámka</p>
+                            <p className="text-sm font-semibold text-amber-900">"{order.note}"</p>
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => onUpdateStatus?.(order.id, OrderStatus.PAID)}
+                          className="w-full py-3 bg-emerald-500 text-white font-black text-sm uppercase rounded-lg hover:bg-emerald-600 active:scale-95 transition-all"
+                        >
+                          Vydáno
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* In Progress - V přípravě */}
+              {activeOrders.filter(o => o.status !== OrderStatus.COMPLETED).length > 0 && (
+                <div>
+                  <h2 className="text-sm font-black text-blue-700 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                    V Přípravě ({activeOrders.filter(o => o.status !== OrderStatus.COMPLETED).length})
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {activeOrders.filter(o => o.status !== OrderStatus.COMPLETED).map(order => (
+                      <div key={order.id} className={`rounded-lg border-2 p-4 flex flex-col gap-3 ${order.status === OrderStatus.PENDING ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="text-lg font-black text-slate-900">#{String(order.orderNumber).padStart(2, '0')}</h3>
+                            <p className="text-sm font-bold text-slate-700">{order.userInfo.nickname || order.userInfo.firstName}</p>
+                            <p className={`text-xs font-black uppercase mt-1 ${order.status === OrderStatus.PENDING ? 'text-orange-600' : 'text-blue-600'}`}>
+                              {order.status === OrderStatus.PENDING ? 'Čeká' : 'V kuchyni'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="bg-white p-3 rounded-lg space-y-2">
+                          {order.items.map((item, idx) => (
+                            <div key={idx} className="text-sm font-bold text-slate-800">
+                              <span className={`font-black ${order.status === OrderStatus.PENDING ? 'text-orange-600' : 'text-blue-600'}`}>{item.quantity}x</span> {item.name}
+                            </div>
+                          ))}
+                        </div>
+
+                        {order.note && (
+                          <div className="bg-white border-l-4 border-amber-400 p-3 rounded-r-lg">
+                            <p className="text-xs font-black text-amber-700 uppercase mb-1">Poznámka</p>
+                            <p className="text-sm font-semibold text-amber-900">"{order.note}"</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+          )}
         </div>
 
-        {/* Right Column: Mini-Dashboard */}
-        <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl h-fit sticky top-6">
-            <h3 className="font-black text-orange-400 uppercase tracking-widest text-[9px] mb-6">Statistiky Stánku</h3>
-            <div className="space-y-6">
-                <div>
-                    <label className="text-[10px] font-black text-slate-500 uppercase mb-1 block">Vydaných porcí celkem</label>
-                    <p className="text-5xl font-black text-white">{orders.filter(o => o.status === OrderStatus.PAID).reduce((acc, o) => acc + o.items.reduce((a, i) => a + i.quantity, 0), 0)}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-800">
-                    <div>
-                        <label className="text-[10px] font-black text-slate-500 uppercase mb-1 block">Aktivní fronta</label>
-                        <p className="text-2xl font-black text-orange-400">{activeOrders.length}</p>
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black text-slate-500 uppercase mb-1 block">Tržba Celkem</label>
-                        <p className="text-2xl font-black text-emerald-400">
-                          {orders
-                            .filter(o => o.status === OrderStatus.PAID)
-                            .reduce((acc, o) => acc + o.items.reduce((sum, i) => sum + (i.price * i.quantity), 0), 0)
-                          },- Kč
-                        </p>
-                    </div>
-                </div>
+        <aside className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 h-fit lg:sticky lg:top-4">
+          <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Statistiky</h3>
+          <div className="space-y-3">
+            <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+              <p className="text-[11px] font-black text-blue-600 uppercase tracking-wider">Objednávek</p>
+              <p className="text-2xl font-black text-blue-900 mt-1">{totalOrders}</p>
             </div>
-        </div>
+            <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-100">
+              <p className="text-[11px] font-black text-emerald-600 uppercase tracking-wider">Zákazníků</p>
+              <p className="text-2xl font-black text-emerald-900 mt-1">{uniqueCustomers}</p>
+            </div>
+            <div className="bg-orange-50 rounded-lg p-3 border border-orange-100">
+              <p className="text-[11px] font-black text-orange-600 uppercase tracking-wider mb-2">Top 3 položky</p>
+              <div className="space-y-1.5">
+                {topItems.length === 0 ? (
+                  <p className="text-sm text-orange-700 font-bold">Bez dat</p>
+                ) : (
+                  topItems.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="font-bold text-orange-900 truncate">{idx + 1}. {item.name}</span>
+                      <span className="font-black text-orange-600 shrink-0">{item.count}x</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
 
       {isCreatingPOS && (
@@ -310,9 +422,9 @@ export const CashierView: React.FC<CashierViewProps> = ({
             <div className={`w-full ${posStep === 'items' ? 'lg:w-72 border-l border-slate-100' : 'flex-1'} bg-white flex flex-col shrink-0 p-3 overflow-hidden`}>
               {posStep === 'items' ? (
                 <>
-                  <div className="flex justify-between items-center mb-3">
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <h2 className="font-black text-sm text-slate-900 uppercase tracking-tight">Tác / Košík</h2>
-                    <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full text-[8px] font-black uppercase">Fáze 1</span>
+                    <span className="self-start bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full text-[8px] font-black uppercase sm:self-auto">Fáze 1</span>
                   </div>
                   
                   <div className="flex-1 overflow-y-auto space-y-1 mb-3 no-scrollbar pr-1">
@@ -323,16 +435,36 @@ export const CashierView: React.FC<CashierViewProps> = ({
                       </div>
                     ) : (
                       posCart.map((item, idx) => (
-                        <div key={idx} className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                          <div className="flex justify-between items-center">
-                              <div className="font-black text-[10px] text-slate-800 leading-none">{item.quantity}x {item.name}</div>
-                              <button onClick={() => removeFromPosCart(idx)} className="text-red-300 hover:text-red-500 text-xs px-1">✕</button>
-                          </div>
-                          {item.upravy && item.upravy.length > 0 && (
-                              <div className="text-[8px] font-bold text-slate-400 italic leading-none mt-1">
-                                  {item.upravy.join(', ')}
+                        <div key={idx} className="rounded-xl border border-slate-100 bg-white p-2 shadow-sm">
+                          <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex shrink-0 items-center rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-black text-white">{item.quantity}x</span>
+                                  <div className="min-w-0 font-black text-[11px] text-slate-900 leading-tight truncate">{item.name}</div>
+                                </div>
+                                {item.upravy && item.upravy.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {item.upravy.map((uprava, upravaIdx) => (
+                                      <span
+                                        key={`${idx}-${upravaIdx}-${uprava}`}
+                                        className={`inline-flex items-center rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-tight ${upravaIdx === 0 ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-orange-50 text-orange-700 border border-orange-100'}`}
+                                      >
+                                        {upravaIdx === 0 ? 'VAR' : 'ADD'} · {uprava}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                          )}
+                              <button onClick={() => removeFromPosCart(idx)} className="text-red-300 hover:text-red-500 text-xs px-1 shrink-0">✕</button>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => updatePosCartItemQuantity(idx, -1)} className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-base font-black text-slate-700 shadow-sm active:scale-95">−</button>
+                              <span className="w-8 text-center text-xs font-black text-slate-900">{item.quantity}x</span>
+                              <button onClick={() => updatePosCartItemQuantity(idx, 1)} className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-base font-black text-slate-700 shadow-sm active:scale-95">+</button>
+                            </div>
+                            <span className="text-[8px] font-bold uppercase tracking-[0.16em] text-slate-400">v tácu</span>
+                          </div>
                         </div>
                       ))
                     )}
@@ -502,69 +634,117 @@ export const CashierView: React.FC<CashierViewProps> = ({
       )}
     {/* POS Selection Modal */}
     {isPosModalOpen && selectedItem && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[300] flex items-center justify-center p-4">
-            <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl relative animate-scale-in">
-                <button onClick={() => setIsPosModalOpen(false)} className="absolute top-6 right-8 text-slate-300 hover:text-slate-900 text-xl font-black">✕</button>
-                
-                <div className="flex items-center gap-4 mb-8">
-                    <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-lg bg-slate-100 flex items-center justify-center shrink-0">
-                       {selectedItem.image ? (
-                         <img src={selectedItem.image} className="w-full h-full object-cover" />
-                       ) : (
-                         <span className="text-3xl">🍽️</span>
-                       )}
-                    </div>
-                    <div>
-                        <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter leading-tight">{selectedItem.name}</h2>
-                        <p className="text-sm font-bold text-slate-400 italic line-clamp-2">"{selectedItem.description}"</p>
-                    </div>
+      <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[300] flex items-end justify-center p-0 sm:items-center sm:p-4">
+        <div className="relative flex h-[92svh] w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-[2rem] rounded-t-[2rem]">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
+                 {selectedItem.image ? (
+                 <img src={selectedItem.image} className="h-full w-full object-cover" />
+                 ) : (
+                 <div className="flex h-full w-full items-center justify-center text-2xl">🍽️</div>
+                 )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Položka v POS</p>
+                <h2 className="truncate text-xl font-black uppercase tracking-tight text-slate-900 sm:text-2xl">{selectedItem.name}</h2>
+                {selectedItem.description && (
+                  <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-500">{selectedItem.description}</p>
+                )}
+              </div>
+            </div>
+            <button onClick={() => setIsPosModalOpen(false)} className="rounded-full bg-slate-100 p-2 text-lg font-black text-slate-400 transition-colors hover:text-slate-900">✕</button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 no-scrollbar space-y-5">
+            {selectedItem.varianty && selectedItem.varianty.length > 0 && (
+              <section>
+                <label className="mb-3 block text-[10px] font-black uppercase tracking-widest text-slate-400">Vyberte variantu</label>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {selectedItem.varianty.map(v => (
+                    <button 
+                      key={v}
+                      onClick={() => setSelectedVariant(v)}
+                      className={`rounded-xl border-2 px-4 py-3 text-xs font-black transition-all ${selectedVariant === v ? 'border-blue-600 bg-blue-600 text-white shadow-lg' : 'border-slate-100 bg-white text-slate-500 hover:border-blue-200'}`}
+                    >
+                      {v}
+                    </button>
+                  ))}
                 </div>
+              </section>
+            )}
 
-                {/* Varianty */}
-                {selectedItem.varianty && selectedItem.varianty.length > 0 && (
-                    <div className="mb-6">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Vyberte variantu</label>
-                        <div className="flex flex-wrap gap-2">
-                            {selectedItem.varianty.map(v => (
-                                <button 
-                                    key={v}
-                                    onClick={() => setSelectedVariant(v)}
-                                    className={`px-6 py-3 rounded-xl font-black text-xs transition-all border-2 ${selectedVariant === v ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-400 hover:border-blue-200'}`}
-                                >
-                                    {v}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+            <section className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <label className="mb-3 block text-[10px] font-black uppercase tracking-widest text-slate-400">Co se vloží na tác</label>
+              <div className="flex flex-wrap gap-2">
+                {selectedVariant ? (
+                  <span className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-black uppercase tracking-tight text-blue-700">
+                    VARIANTA · {selectedVariant}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-400">
+                    Bez varianty
+                  </span>
                 )}
 
-                {/* Vylepšení */}
-                {selectedItem.vylepseni && selectedItem.vylepseni.length > 0 && (
-                    <div className="mb-8">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Doplňky a vylepšení</label>
-                        <div className="flex flex-wrap gap-2">
-                            {selectedItem.vylepseni.map(v => {
-                                const isSelected = selectedEnhancements.includes(v);
-                                return (
-                                    <button 
-                                        key={v}
-                                        onClick={() => {
-                                            if (isSelected) setSelectedEnhancements(prev => prev.filter(e => e !== v));
-                                            else setSelectedEnhancements(prev => [...prev, v]);
-                                        }}
-                                        className={`px-4 py-2 rounded-lg font-black text-[10px] transition-all border-2 ${isSelected ? 'bg-orange-500 border-orange-500 text-white' : 'bg-slate-50 border-slate-50 text-slate-400'} flex items-center justify-center gap-1`}
-                                    >
-                                        {isSelected ? '✓ ' : <span className="text-xs pb-0.5">+</span>}{v}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
+                {selectedEnhancements.length > 0 ? (
+                  selectedEnhancements.map((enh, idx) => (
+                    <span
+                      key={`${enh}-${idx}`}
+                      className="inline-flex items-center rounded-full border border-orange-100 bg-orange-50 px-3 py-1.5 text-xs font-black uppercase tracking-tight text-orange-700"
+                    >
+                      + {enh}
+                    </span>
+                  ))
+                ) : (
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-400">
+                    Bez doplňků
+                  </span>
                 )}
+              </div>
+            </section>
 
-                <Button variant="primary" fullWidth onClick={confirmPosAdd} className="py-5 text-lg font-black rounded-2xl shadow-xl shadow-orange-100">
-                    PŘIDAT DO ŠTÍTKU 🛒
-                </Button>
+            {selectedItem.vylepseni && selectedItem.vylepseni.length > 0 && (
+              <section>
+                <label className="mb-3 block text-[10px] font-black uppercase tracking-widest text-slate-400">Doplňky a vylepšení</label>
+                <div className="flex flex-wrap gap-2">
+                  {selectedItem.vylepseni.map(v => {
+                    const isSelected = selectedEnhancements.includes(v);
+                    return (
+                      <button 
+                        key={v}
+                        onClick={() => {
+                          if (isSelected) setSelectedEnhancements(prev => prev.filter(e => e !== v));
+                          else setSelectedEnhancements(prev => [...prev, v]);
+                        }}
+                        className={`rounded-lg border-2 px-3 py-2 text-[10px] font-black transition-all ${isSelected ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-100 bg-white text-slate-500 hover:border-orange-200'}`}
+                      >
+                        {isSelected ? '✓ ' : '+ '}{v}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            <section className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <label className="mb-3 block text-[10px] font-black uppercase tracking-widest text-slate-400">Množství</label>
+              <div className="flex items-center justify-between gap-3">
+                <div className="inline-flex items-center rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+                  <button type="button" onClick={() => setSelectedQuantity(q => Math.max(1, q - 1))} className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-lg font-black text-slate-700 active:scale-95">−</button>
+                  <span className="w-12 text-center text-base font-black text-slate-900">{selectedQuantity}</span>
+                  <button type="button" onClick={() => setSelectedQuantity(q => Math.min(20, q + 1))} className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-lg font-black text-slate-700 active:scale-95">+</button>
+                </div>
+                <p className="text-xs font-semibold text-slate-500">Rychlé přidání do tácu</p>
+              </div>
+            </section>
+          </div>
+
+          <div className="border-t border-slate-100 bg-white p-4 sm:p-5">
+            <Button variant="primary" fullWidth onClick={confirmPosAdd} className="min-h-[56px] rounded-2xl py-4 text-base font-black shadow-xl shadow-orange-100">
+              Přidat na tác
+            </Button>
+          </div>
             </div>
         </div>
     )}

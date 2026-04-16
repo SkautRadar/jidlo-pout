@@ -1,4 +1,4 @@
-import { User, UserInfo } from '../types';
+import { Order, User, UserInfo } from '../types';
 import { getDisplayName, getFullAddress } from './validation';
 
 interface GuestUser {
@@ -89,6 +89,43 @@ export const exportGuestsToCSV = (guests: GuestUser[]): void => {
     ]);
 
     downloadCSV('hostuji_uzivatele.csv', headers, rows);
+};
+
+/**
+ * Export all orders to CSV for deep custom analysis
+ */
+export const exportOrdersToCSV = (orders: Order[]): void => {
+    const headers = [
+        'ID Objednávky',
+        'Číslo',
+        'Stav',
+        'Datum a čas',
+        'Zákazník (Email/ID)',
+        'Zákazník (Jméno)',
+        'Položky (Počet kusů celkem)',
+        'Položky (Detail)',
+        'Celková částka (Kč)'
+    ];
+
+    const rows = orders.map(order => {
+        const totalItems = order.items.reduce((sum, item) => sum + item.quantity, 0);
+        const totalPrice = order.items.reduce((sum, item) => sum + ((item.price || 0) * item.quantity), 0);
+        const itemsDetail = order.items.map(i => `${i.quantity}x ${i.name}`).join(' | ');
+        
+        return [
+            order.id,
+            order.orderNumber,
+            order.status,
+            formatDate(order.createdAt),
+            order.userInfo.email || order.userInfo.nickname || '',
+            `${order.userInfo.firstName} ${order.userInfo.lastName}`,
+            totalItems,
+            itemsDetail,
+            totalPrice
+        ];
+    });
+
+    downloadCSV('vsechny_objednavky_raw.csv', headers, rows);
 };
 
 /**

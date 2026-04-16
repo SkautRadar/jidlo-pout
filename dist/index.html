@@ -7,17 +7,35 @@
   <title>GastroMaster Pro</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link
-    href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700;800;900&family=Noto+Sans+Display:wght@400;500;600;700;800;900&display=swap"
     rel="stylesheet">
-  <link rel="icon" type="image/png" href="/assets/favicon-J8WoTKJ3.png">
+  <link rel="icon" type="image/png" href="/favicon.png">
   <style>
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Noto Sans', sans-serif;
       background-color: #fffaf5;
+      background-image:
+        radial-gradient(circle at top left, rgba(251, 146, 60, 0.22), transparent 28%),
+        radial-gradient(circle at top right, rgba(244, 114, 182, 0.10), transparent 24%),
+        radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.09), transparent 22%),
+        linear-gradient(180deg, #fffaf5 0%, #fffdf9 100%);
+      background-attachment: fixed;
+      color: #0f172a;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
+    h1,
+    h2,
+    h3,
     .font-playful {
-      font-family: 'Fredoka', sans-serif;
+      font-family: 'Noto Sans Display', 'Noto Sans', sans-serif;
+    }
+
+    ::selection {
+      background: rgba(251, 146, 60, 0.22);
+      color: #0f172a;
     }
 
     .menu-card-hover {
@@ -93,6 +111,12 @@
     .animate-bounce-in {
       animation: bounceIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
     }
+
+    @media (max-width: 640px) {
+      body {
+        background-attachment: scroll;
+      }
+    }
   </style>
 
   <link rel="stylesheet" href="/index.css">
@@ -107,8 +131,8 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="/assets/index-Ddw7vS19.js"></script>
-</head>
+  <script type="module" crossorigin src="/assets/index-OpUY26s6.js"></script>
+<link rel="manifest" href="/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/registerSW.js"></script></head>
 
 <body>
   <div id="root"></div>

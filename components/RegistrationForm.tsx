@@ -60,7 +60,15 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSubmit, on
 
     return (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
-            <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
+            <div className="relative bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
+                <button
+                    type="button"
+                    onClick={onCancel}
+                    className="absolute right-4 top-4 rounded-full bg-slate-100 p-2 text-lg font-black text-slate-400 transition-colors hover:text-slate-900"
+                    aria-label="Zavřít registraci"
+                >
+                    ✕
+                </button>
                 <h2 className="text-3xl font-black mb-6 text-slate-900 border-b-4 border-orange-500 pb-2 inline-block">Registrace</h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">

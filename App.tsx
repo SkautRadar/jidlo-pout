@@ -7,6 +7,7 @@ import { ArchiveView } from './components/ArchiveView';
 import { MenuManagementView } from './components/MenuManagementView';
 import { UserManagementView } from './components/UserManagementView';
 import { OrderTrackingView } from './components/OrderTrackingView';
+import { AnalyticsView } from './components/AnalyticsView';
 import { AdminLogin } from './components/AdminLogin';
 import { Order, OrderStatus, AppView, MenuItem, User, OrderItem } from './types';
 import { MENU_ITEMS as INITIAL_MENU_ITEMS } from './constants';
@@ -15,6 +16,12 @@ import { errorLogger, ErrorSeverity, getUserFriendlyMessage } from './utils/erro
 import { useToast } from './components/ToastProvider';
 
 const APP_VERSION = 'v9.0-skaut';
+
+interface GuestOrderLocalRecord {
+  id: string;
+  orderNumber: number;
+  createdAt: string;
+}
 
 const App: React.FC = () => {
   const { showToast } = useToast();
@@ -31,6 +38,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [guestOrderIds, setGuestOrderIds] = useState<string[]>([]);
+  const [guestOrderRecords, setGuestOrderRecords] = useState<GuestOrderLocalRecord[]>([]);
   const notificationSound = useRef<HTMLAudioElement | null>(null);
 
   // --- DATA TRANSFORMATION HELPERS ---
@@ -92,9 +100,10 @@ const App: React.FC = () => {
       else if (hash.includes('menu_mgmt')) setActiveView('MENU_MGMT');
       else if (hash.includes('user_mgmt')) setActiveView('USER_MGMT');
       else if (hash.includes('archive')) setActiveView('ARCHIVE');
+      else if (hash.includes('analytics')) setActiveView('ANALYTICS');
       else setActiveView('CUSTOMER');
 
-      if (['admin', 'cashier', 'menu_mgmt', 'user_mgmt', 'archive'].some(v => hash.includes(v)) && !isAdminAuthenticated) {
+      if (['admin', 'cashier', 'menu_mgmt', 'user_mgmt', 'archive', 'analytics'].some(v => hash.includes(v)) && !isAdminAuthenticated) {
         setShowLoginDialog(true);
       }
     };
@@ -107,8 +116,36 @@ const App: React.FC = () => {
       try { setGuestOrderIds(JSON.parse(savedGuestIds)); } catch (e) { console.error('Error loading guest orders', e); }
     }
 
+    const savedGuestRecords = localStorage.getItem('gastromaster_guest_order_records');
+    if (savedGuestRecords) {
+      try { setGuestOrderRecords(JSON.parse(savedGuestRecords)); } catch (e) { console.error('Error loading guest order records', e); }
+    }
+
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [isAdminAuthenticated]);
+
+  useEffect(() => {
+    if (guestOrderIds.length === 0 || orders.length === 0) return;
+
+    const fromOrders: GuestOrderLocalRecord[] = orders
+      .filter(o => guestOrderIds.includes(o.id))
+      .map(o => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        createdAt: o.createdAt.toISOString()
+      }));
+
+    const merged = [...guestOrderRecords, ...fromOrders]
+      .reduce((acc, record) => {
+        if (!acc.some(r => r.id === record.id)) acc.push(record);
+        return acc;
+      }, [] as GuestOrderLocalRecord[])
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 100);
+
+    setGuestOrderRecords(merged);
+    localStorage.setItem('gastromaster_guest_order_records', JSON.stringify(merged));
+  }, [orders, guestOrderIds]);
 
   // --- INITIAL DATA FETCH ---
   useEffect(() => {
@@ -186,13 +223,20 @@ const App: React.FC = () => {
   }, [isAdminAuthenticated]);
 
   // --- HANDLERS ---
-  const handleNewOrder = async (order: Order) => {
+  const handleNewOrder = async (order: Order): Promise<Order | null> => {
     const enrichedOrder = { ...order, orderNumber: orderCounter };
 
     if (!currentUser) {
       const newGuestIds = [...guestOrderIds, order.id];
       setGuestOrderIds(newGuestIds);
       localStorage.setItem('gastromaster_guest_orders', JSON.stringify(newGuestIds));
+
+      const newGuestRecords = [
+        ...guestOrderRecords,
+        { id: order.id, orderNumber: enrichedOrder.orderNumber, createdAt: enrichedOrder.createdAt.toISOString() }
+      ];
+      setGuestOrderRecords(newGuestRecords);
+      localStorage.setItem('gastromaster_guest_order_records', JSON.stringify(newGuestRecords));
     }
 
     setOrders(prev => [...prev, enrichedOrder]);
@@ -214,11 +258,11 @@ const App: React.FC = () => {
       setOrders(prev => prev.filter(o => o.id !== enrichedOrder.id));
       errorLogger.log(error, ErrorSeverity.HIGH, { orderId: enrichedOrder.id, action: 'create_order' });
       showToast(`❌ ${getUserFriendlyMessage(error)}`, 'error');
-      return;
+      return null;
     }
 
-    if (activeView === 'CUSTOMER') setActiveView('TRACKING');
     showToast('Objednávka odeslána!', 'success');
+    return enrichedOrder;
   };
 
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
@@ -362,6 +406,7 @@ const App: React.FC = () => {
               { id: 'CASHIER', icon: '💰', label: 'Kasa & Výdej' },
               { id: 'MENU_MGMT', icon: '📝', label: 'Správa Menu' },
               { id: 'USER_MGMT', icon: '👥', label: 'Uživatelé' },
+              { id: 'ANALYTICS', icon: '📈', label: 'Analytika' },
             ].map(item => (
               <button
                 key={item.id}
@@ -399,11 +444,12 @@ const App: React.FC = () => {
           </div>
         )}
         {activeView === 'CUSTOMER' && <CustomerView menuItems={menuItems} onOrderSubmit={handleNewOrder} currentUser={currentUser} onRegister={handleRegisterUser} onLogin={handleCustomerLogin} onLogout={() => setCurrentUser(null)} onUpdateUser={setCurrentUser} onNavigate={setActiveView} />}
-        {activeView === 'TRACKING' && <OrderTrackingView orders={orders} currentUser={currentUser} isAdmin={isAdminAuthenticated} guestOrderIds={guestOrderIds} onBack={() => setActiveView('CUSTOMER')} />}
+        {activeView === 'TRACKING' && <OrderTrackingView orders={orders} currentUser={currentUser} isAdmin={isAdminAuthenticated} guestOrderIds={guestOrderIds} guestSavedOrderNumbers={guestOrderRecords.map(r => r.orderNumber).slice(0, 8)} onBack={() => setActiveView('CUSTOMER')} />}
         {activeView === 'ADMIN' && isAdminAuthenticated && <AdminView orders={orders} onUpdateStatus={updateOrderStatus} />}
         {activeView === 'CASHIER' && isAdminAuthenticated && <CashierView orders={orders} users={users} menuItems={menuItems} onNewOrder={handleNewOrder} onUpdateStatus={updateOrderStatus} />}
         {activeView === 'MENU_MGMT' && isAdminAuthenticated && <MenuManagementView items={menuItems} onUpdateItems={handleUpdateMenuItems} onDeleteItem={handleDeleteMenuItem} categories={categories} onUpdateCategories={handleUpdateCategories} onRenameCategory={handleRenameCategory} />}
         {activeView === 'USER_MGMT' && isAdminAuthenticated && <UserManagementView users={users} onDeleteUser={handleDeleteUser} orders={orders} />}
+        {activeView === 'ANALYTICS' && isAdminAuthenticated && <AnalyticsView orders={orders} />}
       </main>
 
       {showLoginDialog && !isAdminAuthenticated && (

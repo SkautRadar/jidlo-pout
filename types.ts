@@ -123,4 +123,4 @@ export interface Order {
   isPaid?: boolean;
 }
 
-export type AppView = 'CUSTOMER' | 'ADMIN' | 'CASHIER' | 'ARCHIVE' | 'MENU_MGMT' | 'USER_MGMT' | 'TRACKING' | 'PROFILE';
+export type AppView = 'CUSTOMER' | 'ADMIN' | 'CASHIER' | 'ARCHIVE' | 'MENU_MGMT' | 'USER_MGMT' | 'TRACKING' | 'PROFILE' | 'ANALYTICS';
