@@ -1,0 +1,5 @@
+{
+  "name": "GastroMaster Pro",
+  "description": "A comprehensive restaurant management system featuring a customer ordering interface, kitchen administration for order processing, and a professional POS system for cashiers.",
+  "requestFramePermissions": []
+}
